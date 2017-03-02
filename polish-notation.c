@@ -27,6 +27,95 @@ void add_history(char* unused) {}
 #include <editline/history.h>
 #endif
 
+/* Declare lval struct */
+typedef struct {
+  int type;
+  long num;
+  int err;
+} lval;
+
+/* Enum of possible lval types */
+enum {LVAL_NUM, LVAL_ERR};
+/* Enum of possible error types */
+enum { LERR_DIV_ZERO, LERR_BAD_OP, LERR_BAD_NUM };
+
+/* Create number type lval */
+lval lval_num(long x) {
+  lval v;
+  v.type = LVAL_NUM;
+  v.num = x;
+  return v;
+}
+
+/* Create error type lval */
+lval lval_err(int x) {
+  lval v;
+  v.type = LVAL_ERR;
+  v.err = x;
+  return v;
+}
+
+/* print an lval */
+void lval_print(lval v) {
+  switch (v.type) {
+    case LVAL_NUM: printf("%li", v.num); break;
+    case LVAL_ERR:
+      switch (v.err) {
+        case LERR_DIV_ZERO: printf("Error: Division by Zero"); break;
+        case LERR_BAD_OP: printf("Error: Invalid Operator"); break;
+        case LERR_BAD_NUM: printf("Error: Invalid Number"); break;
+      }
+  }
+}
+
+/* print an lval and newline */
+void lval_println(lval v) { lval_print(v); putchar('\n'); }
+
+/* function performs the operations */
+lval eval_op(lval x, char* op, lval y) {
+  /* If there's an error, return it */
+  if (x.type == LVAL_ERR) { return x; }
+  if (y.type == LVAL_ERR) { return y; }
+
+  if (strcmp(op, "+") == 0) {return lval_num(x.num + y.num);}
+  if (strcmp(op, "-") == 0) {return lval_num(x.num - y.num);}
+  if (strcmp(op, "*") == 0) {return lval_num(x.num * y.num);}
+  if (strcmp(op, "/") == 0) {
+    /* if divisor is zero return error */
+    return y.num == 0
+      ? lval_err(LERR_DIV_ZERO)
+      : lval_num(x.num / y.num);
+  }
+  return lval_err(LERR_BAD_OP);
+}
+
+/* recursive eval function */
+lval eval(mpc_ast_t* t) {
+  /* If a number, return it */
+  if (strstr(t->tag, "number")) {
+    /* check for conversion error */
+    errno = 0;
+    long x = strtol(t->contents, NULL, 10);
+    return errno != ERANGE
+      ? lval_num(x)
+      : lval_err(LERR_BAD_NUM);
+  }
+
+  /* Second child of an expression is an operation*/
+  char* op = t->children[1]->contents;
+
+  /* Grab the third child */
+  lval x = eval(t->children[2]);
+
+  /* Iterate remaining children and perform operation */
+  int i =3;
+  while (strstr(t->children[i]->tag, "expr")) {
+    x = eval_op(x, op, eval(t->children[i]));
+    i++;
+  }
+  return x;
+}
+
 int main(int argc, char** argv) {
 
   /* Create parsers */
@@ -37,8 +126,7 @@ int main(int argc, char** argv) {
 
   /* Define grammar */
   mpca_lang(MPCA_LANG_DEFAULT,
-    "                                                    \
-      number    : /-?[0-9]+/                            ;\
+    " number    : /-?[0-9]+/                            ;\
       operator  : '+' | '-' | '*' | '/'                 ;\
       expr      : <number> | '(' <operator> <expr>+ ')' ;\
       polish    : /^/ <operator> <expr>+ /$/            ;\
@@ -59,8 +147,9 @@ int main(int argc, char** argv) {
     /* Parse the input */
     mpc_result_t r;
     if (mpc_parse("<stdin>", input, Polish, &r)) {
-      /* Success: print AST */
-      mpc_ast_print(r.output);
+      /* Success: eval and print */
+      lval result = eval(r.output);
+      lval_println(result);
       mpc_ast_delete(r.output);
     } else {
       /* Failure: Print Error */
