@@ -27,32 +27,73 @@ void add_history(char* unused) {}
 #include <editline/history.h>
 #endif
 
+/************************* LVAL *************************/
+
 /* Declare lval struct */
-typedef struct {
+typedef struct lval {
   int type;
   long num;
-  int err;
-} lval;
+  char* err;
+  char* sym;
+
+  /* for lists of "lval*" */
+  int count;
+  struct lval** cell;
+};
 
 /* Enum of possible lval types */
-enum {LVAL_NUM, LVAL_ERR};
-/* Enum of possible error types */
-enum { LERR_DIV_ZERO, LERR_BAD_OP, LERR_BAD_NUM };
+enum {LVAL_NUM, LVAL_SYM, LVAL_SEXPR, LVAL_ERR};
 
-/* Create number type lval */
-lval lval_num(long x) {
-  lval v;
-  v.type = LVAL_NUM;
-  v.num = x;
+/* Create a pointer to a number type lval */
+lval* lval_num(long x) {
+  lval* v = malloc(sizeof(lval));
+  v->type = LVAL_NUM;
+  v->num = x;
   return v;
 }
 
-/* Create error type lval */
-lval lval_err(int x) {
-  lval v;
-  v.type = LVAL_ERR;
-  v.err = x;
+/* Create a pointer to an error type lval */
+lval* lval_err(char* m) {
+  lval* v = malloc(sizeof(lval));
+  v->type = LVAL_ERR;
+  v->err = malloc(strlen(m) + 1);
+  strcpy(v->err, m);
   return v;
+}
+
+/* Create a pointer to a symbol type lval */
+lval* lval_sym(char* s) {
+  lval* v = malloc(sizeof(lval));
+  v->type = LVAL_SYM;
+  v->sym = malloc(strlen(s) + 1);
+  strcpy(v->sym, s);
+  return v;
+}
+
+/* Create a pointer to an empty Sexpr lval */
+lval* lval_sexpr(void) {
+  lval* v = malloc(sizeof(lval));
+  v->type = LVAL_SEXPR;
+  v->count = 0;
+  v->cell = NULL;
+  return v;
+}
+
+/* Delete an lval, and all its pointers/data */
+void lval_del(laval* v) {
+  switch (v-> type) {
+    case LVAL_NUM: break;
+    case LVAL_ERR: free(v->err); break;
+    case LVAL_SYM: free(v->sym); break;
+    case LVAL_SEXPR:
+      /* delete all children */
+      for (int i = 0; i < v->count; i++) {
+        lval_del(v->cell[i]);
+      }
+      free(v->cell);
+      break;
+  }
+  free(v);
 }
 
 /* print an lval */
@@ -70,6 +111,8 @@ void lval_print(lval v) {
 
 /* print an lval and newline */
 void lval_println(lval v) { lval_print(v); putchar('\n'); }
+
+/************************* EVAL FUNCS *************************/
 
 /* function performs the operations */
 lval eval_op(lval x, char* op, lval y) {
@@ -116,24 +159,27 @@ lval eval(mpc_ast_t* t) {
   return x;
 }
 
+/************************* MAIN *************************/
+
 int main(int argc, char** argv) {
 
   /* Create parsers */
   mpc_parser_t* Number      = mpc_new("number");
-  mpc_parser_t* Operator    = mpc_new("operator");
+  mpc_parser_t* Symbol      = mpc_new("symbol");
+  mpc_parser_t* SExpression = mpc_new("sexpr");
   mpc_parser_t* Expression  = mpc_new("expr");
-  mpc_parser_t* Polish      = mpc_new("polish");
+  mpc_parser_t* Lisb        = mpc_new("lisb");
 
   /* Define grammar */
   mpca_lang(MPCA_LANG_DEFAULT,
-    " number    : /-?[0-9]+/                            ;\
-      operator  : '+' | '-' | '*' | '/'                 ;\
-      expr      : <number> | '(' <operator> <expr>+ ')' ;\
-      polish    : /^/ <operator> <expr>+ /$/            ;\
+    " number    : /-?[0-9]+/                    ;\
+      symbol    : '+' | '-' | '*' | '/'         ;\
+      sexpr     : '(' <expr>* ')'               ;\
+      expr      : <number> | <symbol> | <sexpr> ;\
+      polish    : /^/ <expr>* /$/               ;\
     ",
-    Number, Operator, Expression, Polish
+    Number, Symbol, SExpression, Expression, Lisb
   );
-
 
   /* Print Version and Exit Info */
   puts("Lisb Version 0.0.1");
@@ -161,7 +207,9 @@ int main(int argc, char** argv) {
   }
 
   /* Undefine and Delete parsers */
-  mpc_cleanup(4, Number, Operator, Expression, Polish);
+  mpc_cleanup(5, Number, Symbol, SExpression, Expression, Lisb);
 
   return 0;
 } /* end main */
+
+/**************************************************/
