@@ -39,7 +39,7 @@ typedef struct lval {
   /* for lists of "lval*" */
   int count;
   struct lval** cell;
-};
+} lval;
 
 /* Enum of possible lval types */
 enum {LVAL_NUM, LVAL_SYM, LVAL_SEXPR, LVAL_ERR};
@@ -88,7 +88,7 @@ lval* lval_add(lval* v, lval* x) {
 }
 
 /* Delete an lval, and all its pointers/data */
-void lval_del(laval* v) {
+void lval_del(lval* v) {
   switch (v-> type) {
     case LVAL_NUM: break;
     case LVAL_ERR: free(v->err); break;
@@ -107,7 +107,7 @@ void lval_del(laval* v) {
 /* Create a number lval from an AST leaf */
 lval* lval_read_num(mpc_ast_t* t) {
   errno = 0;
-  long x = strol(t->contents, NULL, 10);
+  long x = strtol(t->contents, NULL, 10);
   return errno != ERANGE
     ? lval_num(x)
     : lval_err("Invalid Number");
@@ -136,6 +136,9 @@ lval* lval_read(mpc_ast_t* t) {
 
   return x;
 }
+
+/* prep for mutual recursion */
+void lval_print(lval* v);
 
 /* print an sexpr */
 void lval_expr_print(lval* v, char open, char close) {
@@ -168,50 +171,50 @@ void lval_println(lval* v) { lval_print(v); putchar('\n'); }
 
 /************************* EVAL FUNCS *************************/
 
-/* function performs the operations */
-lval eval_op(lval x, char* op, lval y) {
-  /* If there's an error, return it */
-  if (x.type == LVAL_ERR) { return x; }
-  if (y.type == LVAL_ERR) { return y; }
+// /* function performs the operations */
+// lval eval_op(lval x, char* op, lval y) {
+//   /* If there's an error, return it */
+//   if (x.type == LVAL_ERR) { return x; }
+//   if (y.type == LVAL_ERR) { return y; }
 
-  if (strcmp(op, "+") == 0) {return lval_num(x.num + y.num);}
-  if (strcmp(op, "-") == 0) {return lval_num(x.num - y.num);}
-  if (strcmp(op, "*") == 0) {return lval_num(x.num * y.num);}
-  if (strcmp(op, "/") == 0) {
-    /* if divisor is zero return error */
-    return y.num == 0
-      ? lval_err(LERR_DIV_ZERO)
-      : lval_num(x.num / y.num);
-  }
-  return lval_err(LERR_BAD_OP);
-}
+//   if (strcmp(op, "+") == 0) {return lval_num(x.num + y.num);}
+//   if (strcmp(op, "-") == 0) {return lval_num(x.num - y.num);}
+//   if (strcmp(op, "*") == 0) {return lval_num(x.num * y.num);}
+//   if (strcmp(op, "/") == 0) {
+//     /* if divisor is zero return error */
+//     return y.num == 0
+//       ? lval_err(LERR_DIV_ZERO)
+//       : lval_num(x.num / y.num);
+//   }
+//   return lval_err(LERR_BAD_OP);
+// }
 
-/* recursive eval function */
-lval eval(mpc_ast_t* t) {
-  /* If a number, return it */
-  if (strstr(t->tag, "number")) {
-    /* check for conversion error */
-    errno = 0;
-    long x = strtol(t->contents, NULL, 10);
-    return errno != ERANGE
-      ? lval_num(x)
-      : lval_err(LERR_BAD_NUM);
-  }
+// /* recursive eval function */
+// lval eval(mpc_ast_t* t) {
+//   /* If a number, return it */
+//   if (strstr(t->tag, "number")) {
+//     /* check for conversion error */
+//     errno = 0;
+//     long x = strtol(t->contents, NULL, 10);
+//     return errno != ERANGE
+//       ? lval_num(x)
+//       : lval_err(LERR_BAD_NUM);
+//   }
 
-  /* Second child of an expression is an operation*/
-  char* op = t->children[1]->contents;
+//   /* Second child of an expression is an operation*/
+//   char* op = t->children[1]->contents;
 
-  /* Grab the third child */
-  lval x = eval(t->children[2]);
+//   /* Grab the third child */
+//   lval x = eval(t->children[2]);
 
-  /* Iterate remaining children and perform operation */
-  int i =3;
-  while (strstr(t->children[i]->tag, "expr")) {
-    x = eval_op(x, op, eval(t->children[i]));
-    i++;
-  }
-  return x;
-}
+//   /* Iterate remaining children and perform operation */
+//   int i =3;
+//   while (strstr(t->children[i]->tag, "expr")) {
+//     x = eval_op(x, op, eval(t->children[i]));
+//     i++;
+//   }
+//   return x;
+// }
 
 /************************* MAIN *************************/
 
@@ -230,7 +233,7 @@ int main(int argc, char** argv) {
       symbol    : '+' | '-' | '*' | '/'         ;\
       sexpr     : '(' <expr>* ')'               ;\
       expr      : <number> | <symbol> | <sexpr> ;\
-      polish    : /^/ <expr>* /$/               ;\
+      lisb    : /^/ <expr>* /$/               ;\
     ",
     Number, Symbol, SExpression, Expression, Lisb
   );
@@ -246,10 +249,11 @@ int main(int argc, char** argv) {
 
     /* Parse and evaluate the input */
     mpc_result_t r;
-    if (mpc_parse("<stdin>", input, Polish, &r)) {
-      /* Success: eval and print */
-      lval result = eval(r.output);
-      lval_println(result);
+    if (mpc_parse("<stdin>", input, Lisb, &r)) {
+      /* Success: print */
+      lval* x = lval_read(r.output);
+      lval_println(x);
+      lval_del(x);
       mpc_ast_delete(r.output);
     } else {
       /* Failure: Print Error */
