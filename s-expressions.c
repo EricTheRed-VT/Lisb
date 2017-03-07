@@ -171,50 +171,59 @@ void lval_println(lval* v) { lval_print(v); putchar('\n'); }
 
 /************************* EVAL FUNCS *************************/
 
-// /* function performs the operations */
-// lval eval_op(lval x, char* op, lval y) {
-//   /* If there's an error, return it */
-//   if (x.type == LVAL_ERR) { return x; }
-//   if (y.type == LVAL_ERR) { return y; }
+/* func to pull out ith child */
+lval* lval_pop(lval* v, int i) {
+  /* pull out desired child */
+  lval* x = v->cell[i];
+  /* shift following items */
+  memmove(&v->cell[i], &v->cell[i+1], sizeof(lval*) * (v->count-i-1));
+  v->count--;
+  v->cell = realloc(v->cell, sizeof(lval*) * v->count);
+}
 
-//   if (strcmp(op, "+") == 0) {return lval_num(x.num + y.num);}
-//   if (strcmp(op, "-") == 0) {return lval_num(x.num - y.num);}
-//   if (strcmp(op, "*") == 0) {return lval_num(x.num * y.num);}
-//   if (strcmp(op, "/") == 0) {
-//     /* if divisor is zero return error */
-//     return y.num == 0
-//       ? lval_err(LERR_DIV_ZERO)
-//       : lval_num(x.num / y.num);
-//   }
-//   return lval_err(LERR_BAD_OP);
-// }
+/* func to only take ith child and delete original expr */
+lval* lval_take(lval* v, int i) {
+  lval* x = lval_pop(v, i);
+  lval_del(v);
+  return x;
+}
 
-// /* recursive eval function */
-// lval eval(mpc_ast_t* t) {
-//   /* If a number, return it */
-//   if (strstr(t->tag, "number")) {
-//     /* check for conversion error */
-//     errno = 0;
-//     long x = strtol(t->contents, NULL, 10);
-//     return errno != ERANGE
-//       ? lval_num(x)
-//       : lval_err(LERR_BAD_NUM);
-//   }
+lval* lval_eval_sexpr(lval* v) {
+  /* eval children */
+  for (int i = 0; i < v->count; i++) {
+    v->cell[i] = lval_eval(v->cell[i]);
+  }
 
-//   /* Second child of an expression is an operation*/
-//   char* op = t->children[1]->contents;
+  /* if there are errors, return the first error found */
+  for (int i = 0; i < v->count; ++i) {
+    if (v->cell[i]->type == LVAL_ERR) { return lval_take(v, i); }
+  }
 
-//   /* Grab the third child */
-//   lval x = eval(t->children[2]);
+  /* if empty return self */
+  if (v->count == 0) { return v; }
 
-//   /* Iterate remaining children and perform operation */
-//   int i =3;
-//   while (strstr(t->children[i]->tag, "expr")) {
-//     x = eval_op(x, op, eval(t->children[i]));
-//     i++;
-//   }
-//   return x;
-// }
+  /* single expression */
+  if (v->count == 1) { return lval_take(v, 0); }
+
+  /* first element should be a symbol */
+  lval* f = lval_pop(v, 0);
+  if (f->type != LVAL_SYM) {
+    lval_del(f);
+    lval_del(v);
+    return lvall_err("S-expression does not start with symbol");
+  }
+
+  /* call builtin with operator */
+  lval* result = builtin_op(v, f->sym);
+  lval_del(f);
+  return result;
+}
+
+lval* lval_eval(lval* v) {
+  /* eval sexprs */
+  if (v-type == LVAL_SEXPR) { return lval_eval_sexpr(v); }
+  return v;
+}
 
 /************************* MAIN *************************/
 
