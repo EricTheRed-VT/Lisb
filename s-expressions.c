@@ -179,6 +179,7 @@ lval* lval_pop(lval* v, int i) {
   memmove(&v->cell[i], &v->cell[i+1], sizeof(lval*) * (v->count-i-1));
   v->count--;
   v->cell = realloc(v->cell, sizeof(lval*) * v->count);
+  return x;
 }
 
 /* func to only take ith child and delete original expr */
@@ -188,6 +189,48 @@ lval* lval_take(lval* v, int i) {
   return x;
 }
 
+/* func to perform an operation, takes a list and an op */
+lval* builtin_op(lval* a, char* op) {
+
+  /* all elements should be numbers */
+  for (int i = 0; i < a->count; i++) {
+    if (a->cell[i]->type != LVAL_NUM) {
+      lval_del(a);
+      return lval_err("Can only operate on numbers");
+    }
+  }
+  /* pop first element */
+  lval* x = lval_pop(a, 0);
+
+  /* if op is "-" and only one element, perform negation */
+  if((strcmp(op, "-") == 0) && a->count == 0) {
+    x->num = -x->num;
+  }
+
+  /* loop through remaining elements */
+  while (a->count > 0) {
+    lval* y = lval_pop(a, 0);
+
+    if (strcmp(op, "+") == 0) { x->num += y->num; }
+    if (strcmp(op, "-") == 0) { x->num -= y->num; }
+    if (strcmp(op, "*") == 0) { x->num *= y->num; }
+    if (strcmp(op, "/") == 0) {
+      if (y->num == 0) {
+        lval_del(x);
+        lval_del(y);
+        x = lval_err("Division by zero"); break;
+      }
+      x->num /= y->num;
+    }
+    lval_del(y);
+  }
+  lval_del(a);
+  return x;
+}
+
+lval* lval_eval(lval* v);
+
+/* eval an sexpr */
 lval* lval_eval_sexpr(lval* v) {
   /* eval children */
   for (int i = 0; i < v->count; i++) {
@@ -210,7 +253,7 @@ lval* lval_eval_sexpr(lval* v) {
   if (f->type != LVAL_SYM) {
     lval_del(f);
     lval_del(v);
-    return lvall_err("S-expression does not start with symbol");
+    return lval_err("S-expression does not start with symbol");
   }
 
   /* call builtin with operator */
@@ -219,9 +262,10 @@ lval* lval_eval_sexpr(lval* v) {
   return result;
 }
 
+/* eval an expr */
 lval* lval_eval(lval* v) {
   /* eval sexprs */
-  if (v-type == LVAL_SEXPR) { return lval_eval_sexpr(v); }
+  if (v->type == LVAL_SEXPR) { return lval_eval_sexpr(v); }
   return v;
 }
 
@@ -260,7 +304,7 @@ int main(int argc, char** argv) {
     mpc_result_t r;
     if (mpc_parse("<stdin>", input, Lisb, &r)) {
       /* Success: print */
-      lval* x = lval_read(r.output);
+      lval* x = lval_eval(lval_read(r.output));
       lval_println(x);
       lval_del(x);
       mpc_ast_delete(r.output);
