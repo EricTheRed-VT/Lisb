@@ -52,6 +52,7 @@ struct lval {
   long num;
   char* err;
   char* sym;
+  lbuiltin fun;
 
   /* for lists of "lval*" */
   int count;
@@ -62,7 +63,8 @@ struct lval {
 typedef lval* (*lbuiltin)(lenv*, lval*);
 
 /* Enum of possible lval types */
-enum {LVAL_NUM, LVAL_SYM, LVAL_FUN, LVAL_QEXPR, LVAL_SEXPR, LVAL_ERR};
+enum {LVAL_ERR, LVAL_NUM, LVAL_SYM,
+      LVAL_QEXPR, LVAL_SEXPR, LVAL_FUN};
 
 /* Create a pointer to a number type lval */
 lval* lval_num(long x) {
@@ -108,6 +110,14 @@ lval* lval_sexpr(void) {
   return v;
 }
 
+/* create a pointer to a function */
+lval* lval_fun(lbuiltin func) {
+  lval* v = malloc(sizeof(lval));
+  v->type = LVAL_FUN;
+  v->fun = func;
+  return v;
+}
+
 /* Add an lval 'x' as a child to a sexpr 'v' */
 lval* lval_add(lval* v, lval* x) {
   v->count++;
@@ -116,12 +126,43 @@ lval* lval_add(lval* v, lval* x) {
   return v;
 }
 
+/* copy an lval */
+lval* lval_copy(lval* v) {
+  lval* x = malloc(sizeof(lval));
+  x-type = v->type;
+
+  switch (v->type) {
+    /* copy functions and numbers directly */
+    case LVAL_FUN: x->fun = v->fun; break;
+    case LVAL_NUM: x->num = v->num; break;
+
+    case LVAL_ERR:
+      x->err = malloc(strlen(v->err) + 1);
+      strcpy(x->err, v->err); break;
+    case LVAL_SYM:
+      x->sym = malloc(strlen(v->sym) + 1);
+      strcpy(x->sym, v->sym); break;
+
+    /* cpoy lists by copying all sub-exprs */
+    case LVAL_SEXPR:
+    case LVAL_QEXPR:
+      x->count = v->count;
+      x->cell = malloc(sizeof(lval*) * x->count);
+      for (int i = 0; i < x->count; i++) {
+        x->cell[i] = lval_copy(v->cell[i]);
+      }
+      break;
+  }
+  return x;
+}
+
 /* Delete an lval, and all its pointers/data */
 void lval_del(lval* v) {
   switch (v-> type) {
     case LVAL_NUM: break;
     case LVAL_ERR: free(v->err); break;
     case LVAL_SYM: free(v->sym); break;
+    case LVAL_FUN: break;
     case LVAL_QEXPR:
     case LVAL_SEXPR:
       /* delete all children */
@@ -195,6 +236,7 @@ void lval_print(lval* v) {
     case LVAL_SYM: printf("%s", v->sym); break;
     case LVAL_QEXPR: lval_expr_print(v, '{', '}'); break;
     case LVAL_SEXPR: lval_expr_print(v, '(', ')'); break;
+    case LVAL_FUN: printf("<function>"); break;
   }
 }
 
