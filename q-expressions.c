@@ -33,6 +33,11 @@ void add_history(char* unused) {}
 #include <editline/history.h>
 #endif
 
+/************************* MACROS *************************/
+
+#define LASSERT(args, cond, err) \
+  if (!(cond)) { lval_del(args); return lval_err(err); }
+
 /************************* LVAL *************************/
 
 /* Declare lval struct */
@@ -76,6 +81,15 @@ lval* lval_sym(char* s) {
   return v;
 }
 
+/* Create a pointer to an empty Qexpr lval */
+lval* lval_qexpr(void) {
+  lval* v = malloc(sizeof(lval));
+  v->type = LVAL_QEXPR;
+  v->count = 0;
+  v->cell = NULL;
+  return v;
+}
+
 /* Create a pointer to an empty Sexpr lval */
 lval* lval_sexpr(void) {
   lval* v = malloc(sizeof(lval));
@@ -99,6 +113,7 @@ void lval_del(lval* v) {
     case LVAL_NUM: break;
     case LVAL_ERR: free(v->err); break;
     case LVAL_SYM: free(v->sym); break;
+    case LVAL_QEXPR:
     case LVAL_SEXPR:
       /* delete all children */
       for (int i = 0; i < v->count; i++) {
@@ -128,6 +143,7 @@ lval* lval_read(mpc_ast_t* t) {
   /* if root or sexpr create empty list */
   lval* x = NULL;
   if (strcmp(t->tag, ">") == 0) { x = lval_sexpr(); }
+  if (strstr(t->tag, "qexpr")) { x = lval_qexpr(); }
   if (strstr(t->tag, "sexpr")) { x = lval_sexpr(); }
 
   /* add valid children */
@@ -168,6 +184,7 @@ void lval_print(lval* v) {
     case LVAL_NUM: printf("%li", v->num); break;
     case LVAL_ERR: printf("Error: %s", v->err); break;
     case LVAL_SYM: printf("%s", v->sym); break;
+    case LVAL_QEXPR: lval_expr_print(v, '{', '}'); break;
     case LVAL_SEXPR: lval_expr_print(v, '(', ')'); break;
   }
 }
@@ -195,7 +212,35 @@ lval* lval_take(lval* v, int i) {
   return x;
 }
 
-/* func to perform an operation, takes a list and an op */
+/* perform head command */
+lval* builtin_head(lval* a) {
+  LASSERT(a, a->count == 1,
+          "'head' passed too many arguments");
+  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
+          "'head' passed incorrect type");
+  LASSERT(a, a->cell[0]->count != 0,
+          "'head' passed empty q-expression");
+
+  lval* v = lval_take(a, 0);
+  while (v->count > 1) { lval_del(lval_pop(v, 1)); }
+  return v;
+}
+
+/* perform tail command */
+lval* builtin_tail(lval* a) {
+  LASSERT(a, a->count == 1,
+          "'tail' passed too many arguments");
+  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
+          "'tail' passed incorrect type");
+  LASSERT(a, a->cell[0]->count != 0,
+          "'tail' passed empty q-expression");
+
+  lval* v = lval_take(a, 0);
+  lval_del(lval_pop(v, 0));
+  return v;
+}
+
+/* perform an operation */
 lval* builtin_op(lval* a, char* op) {
 
   /* all elements should be numbers */
@@ -290,7 +335,9 @@ int main(int argc, char** argv) {
   /* Define grammar */
   mpca_lang(MPCA_LANG_DEFAULT,
     " number    : /-?[0-9]+/                              ;\
-      symbol    : '+' | '-' | '*' | '/'                   ;\
+      symbol    : \"list\" | \"head\" | \"tail\"           \
+                | \"join\" | \"eval\"                      \
+                | '+' | '-' | '*' | '/'                   ;\
       qexpr     : '{' <expr>* '}'                         ;\
       sexpr     : '(' <expr>* ')'                         ;\
       expr      : <number> | <symbol> | <qexpr> | <sexpr> ;\
