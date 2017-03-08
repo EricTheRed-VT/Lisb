@@ -451,6 +451,28 @@ lval* builtin_div(lenv* e, lval* a) {
   return builtin_op(e, a, "/");
 }
 
+/* func to define a new env variable */
+lval* builtin_def(lenv* e, lval* a) {
+  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
+           "'def' passed incorrect type");
+
+  /* first arg is a list of symbols */
+  lval* syms = a->cell[0];
+  for (int i = 0; i < syms->count; i++) {
+    LASSERT(a, syms->cell[i]->type == LVAL_SYM,
+            "'def' can only define symbols");
+  }
+  LASSERT(a, syms->count == a->count-1,
+          "'def' requires same number of values and symbols");
+  /* assign copies of vals to symbols */
+  for (int i = 0; i < syms->count; i++) {
+    lenv_put(e, syms->cell[i], a->cell[i+1]);
+  }
+  lval_del(a);
+  /* return empty expression */
+  return lval_sexpr();
+}
+
 /* add a func to an env */
 void lenv_add_builtin(lenv* e, char* name, lbuiltin func) {
   lval* k = lval_sym(name);
@@ -472,19 +494,9 @@ void lenv_add_builtins(lenv* e) {
   lenv_add_builtin(e, "-", builtin_sub);
   lenv_add_builtin(e, "*", builtin_mul);
   lenv_add_builtin(e, "/", builtin_div);
-}
 
-// /* call appropriate builtin func */
-// lval* builtin(lval* a, char* func) {
-//   if (strcmp("list", func) == 0) { return builtin_list(a); }
-//   if (strcmp("head", func) == 0) { return builtin_head(a); }
-//   if (strcmp("tail", func) == 0) { return builtin_tail(a); }
-//   if (strcmp("join", func) == 0) { return builtin_join(a); }
-//   if (strcmp("eval", func) == 0) { return builtin_eval(a); }
-//   if (strstr("+-/*", func)) { return builtin_op(a, func); }
-//   lval_del(a);
-//   return lval_err("unknown function");
-// }
+  lenv_add_builtin(e, "def", builtin_def);
+}
 
 /* eval an sexpr */
 lval* lval_eval_sexpr(lenv* e, lval* v) {
