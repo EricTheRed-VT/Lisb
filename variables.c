@@ -35,8 +35,12 @@ void add_history(char* unused) {}
 
 /************************* MACROS *************************/
 
-#define LASSERT(args, cond, err) \
-  if (!(cond)) { lval_del(args); return lval_err(err); }
+#define LASSERT(args, cond, fmt, ...)         \
+  if (!(cond)) {                              \
+    lval* err = lval_err(fmt, ##__VA_ARGS__); \
+    lval_del(args);                           \
+    return err;                               \
+  }
 
 /************************* LVAL *************************/
 
@@ -66,20 +70,29 @@ struct lval {
 enum {LVAL_ERR, LVAL_NUM, LVAL_SYM,
       LVAL_QEXPR, LVAL_SEXPR, LVAL_FUN};
 
+/* Create a pointer to an error type lval */
+lval* lval_err(char* fmt, ...) {
+  lval* v = malloc(sizeof(lval));
+  v->type = LVAL_ERR;
+
+  /* create a va list */
+  va_list va;
+  va_start(va, fmt);
+
+  /* printf the error string (511 char max) */
+  v->err = malloc(512);
+  vsnprintf(v->err, 511, fmt, va);
+  v->err = realloc(v->err, strlen(v->err)+1);
+
+  va_end(va);
+  return v;
+}
+
 /* Create a pointer to a number type lval */
 lval* lval_num(long x) {
   lval* v = malloc(sizeof(lval));
   v->type = LVAL_NUM;
   v->num = x;
-  return v;
-}
-
-/* Create a pointer to an error type lval */
-lval* lval_err(char* m) {
-  lval* v = malloc(sizeof(lval));
-  v->type = LVAL_ERR;
-  v->err = malloc(strlen(m) + 1);
-  strcpy(v->err, m);
   return v;
 }
 
@@ -181,7 +194,7 @@ lval* lval_read_num(mpc_ast_t* t) {
   long x = strtol(t->contents, NULL, 10);
   return errno != ERANGE
     ? lval_num(x)
-    : lval_err("Invalid Number");
+    : lval_err("Invalid Number '%s'", t->contents);
 }
 
 /* create lval tree from AST */
@@ -290,7 +303,7 @@ lval* lenv_get(lenv* e, lval* k) {
       return lval_copy(e->vals[i]);
     }
   }
-  return lval_err("key not in environment");
+  return lval_err("key '%s' not in environment", k->sym);
 }
 
 /* delete an lenv */
@@ -329,7 +342,9 @@ lval* lval_take(lval* v, int i) {
 /* perform head command */
 lval* builtin_head(lenv* e, lval* a) {
   LASSERT(a, a->count == 1,
-          "'head' passed too many arguments");
+          "'head' passed too many arguments. "
+          "Expected %i, got %i",
+          1, a->count);
   LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
           "'head' passed incorrect type");
   LASSERT(a, a->cell[0]->count != 0,
@@ -343,7 +358,9 @@ lval* builtin_head(lenv* e, lval* a) {
 /* perform tail command */
 lval* builtin_tail(lenv* e, lval* a) {
   LASSERT(a, a->count == 1,
-          "'tail' passed too many arguments");
+          "'tail' passed too many arguments. "
+          "Expected %i, got %i",
+          1, a->count);
   LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
           "'tail' passed incorrect type");
   LASSERT(a, a->cell[0]->count != 0,
@@ -362,7 +379,9 @@ lval* builtin_list(lenv* e, lval* a) {
 
 lval* builtin_eval(lenv* e, lval* a) {
   LASSERT(a, a->count == 1,
-          "'eval' passed too many arguments");
+          "'eval' passed too many arguments. "
+          "Expected %i, got %i",
+          1, a->count);
   LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
           "'eval' passed incorrect type");
 
@@ -402,7 +421,7 @@ lval* builtin_op(lenv* e, lval* a, char* op) {
   for (int i = 0; i < a->count; i++) {
     if (a->cell[i]->type != LVAL_NUM) {
       lval_del(a);
-      return lval_err("Can only operate on numbers");
+      return lval_err("Can operate on '%s', not a number", a->cell[i]->type);
     }
   }
   /* pop first element */
@@ -463,7 +482,9 @@ lval* builtin_def(lenv* e, lval* a) {
             "'def' can only define symbols");
   }
   LASSERT(a, syms->count == a->count-1,
-          "'def' requires same number of values and symbols");
+          "'def' requires same number of values and symbols. "
+          "Got %i symbols, and %i values",
+          syms->count, a->count-1);
   /* assign copies of vals to symbols */
   for (int i = 0; i < syms->count; i++) {
     lenv_put(e, syms->cell[i], a->cell[i+1]);
