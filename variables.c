@@ -70,6 +70,19 @@ struct lval {
 enum {LVAL_ERR, LVAL_NUM, LVAL_SYM,
       LVAL_QEXPR, LVAL_SEXPR, LVAL_FUN};
 
+/* retrieve type name from enum */
+char* ltype_name(int t) {
+  switch (t) {
+    case LVAL_FUN: return "Function";
+    case LVAL_NUM: return "Number";
+    case LVAL_ERR: return "Error";
+    case LVAL_SYM: return "Symbol";
+    case LVAL_SEXPR: return "S-Expression";
+    case LVAL_QEXPR: return "Q-Expression";
+    default: return "Unknown";
+  }
+}
+
 /* Create a pointer to an error type lval */
 lval* lval_err(char* fmt, ...) {
   lval* v = malloc(sizeof(lval));
@@ -346,7 +359,10 @@ lval* builtin_head(lenv* e, lval* a) {
           "Expected %i, got %i",
           1, a->count);
   LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
-          "'head' passed incorrect type");
+          "'head' passed incorrect type. "
+          "Expected %s, got %s.",
+          ltype_name(LVAL_QEXPR),
+          ltype_name(a->cell[0]->type));
   LASSERT(a, a->cell[0]->count != 0,
           "'head' passed empty q-expression");
 
@@ -362,7 +378,10 @@ lval* builtin_tail(lenv* e, lval* a) {
           "Expected %i, got %i",
           1, a->count);
   LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
-          "'tail' passed incorrect type");
+          "'tail' passed incorrect type. "
+          "Expected %s, got %s.",
+          ltype_name(LVAL_QEXPR),
+          ltype_name(a->cell[0]->type));
   LASSERT(a, a->cell[0]->count != 0,
           "'tail' passed empty q-expression");
 
@@ -383,7 +402,10 @@ lval* builtin_eval(lenv* e, lval* a) {
           "Expected %i, got %i",
           1, a->count);
   LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
-          "'eval' passed incorrect type");
+          "'eval' passed incorrect type. "
+          "Expected %s, got %s.",
+          ltype_name(LVAL_QEXPR),
+          ltype_name(a->cell[0]->type));
 
   lval* x = lval_take(a, 0);
   x->type = LVAL_SEXPR;
@@ -404,7 +426,10 @@ lval* lval_join(lval* x, lval* y) {
 lval* builtin_join(lenv* e, lval* a) {
   for (int i = 0; i < a->count; i++) {
     LASSERT(a, a->cell[i]->type == LVAL_QEXPR,
-            "'join' passed incorrect type");
+            "'join' passed incorrect type. "
+          "Expected %s, got %s.",
+          ltype_name(LVAL_QEXPR),
+          ltype_name(a->cell[0]->type));
   }
   lval* x = lval_pop(a, 0);
   while (a->count) {
@@ -421,7 +446,10 @@ lval* builtin_op(lenv* e, lval* a, char* op) {
   for (int i = 0; i < a->count; i++) {
     if (a->cell[i]->type != LVAL_NUM) {
       lval_del(a);
-      return lval_err("Can operate on '%s', not a number", a->cell[i]->type);
+      return lval_err("Function '%s', passed incorrect type"
+                      " for argument %i. Expected %s, got %s.",
+                      op, i+1, ltype_name(LVAL_NUM),
+                      ltype_name(a->cell[i]->type));
     }
   }
   /* pop first element */
@@ -473,7 +501,10 @@ lval* builtin_div(lenv* e, lval* a) {
 /* func to define a new env variable */
 lval* builtin_def(lenv* e, lval* a) {
   LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
-           "'def' passed incorrect type");
+           "'def' passed incorrect type. "
+          "Expected %s, got %s.",
+          ltype_name(LVAL_QEXPR),
+          ltype_name(a->cell[0]->type));
 
   /* first arg is a list of symbols */
   lval* syms = a->cell[0];
