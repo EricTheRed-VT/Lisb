@@ -194,6 +194,8 @@ void lval_println(lval* v) { lval_print(v); putchar('\n'); }
 
 /************************* EVAL FUNCS *************************/
 
+lval* lval_eval(lval* v);
+
 /* func to pull out ith child */
 lval* lval_pop(lval* v, int i) {
   /* pull out desired child */
@@ -240,6 +242,47 @@ lval* builtin_tail(lval* a) {
   return v;
 }
 
+/* perform list operation (make a q-expr from an s-expr) */
+lval* builtin_list(lval* a) {
+  a->type = LVAL_QEXPR;
+  return a;
+}
+
+lval* builtin_eval(lval* a) {
+  LASSERT(a, a->count == 1,
+          "'eval' passed too many arguments");
+  LASSERT(a, a->cell[0]->type == LVAL_QEXPR,
+          "'eval' passed incorrect type");
+
+  lval* x = lval_take(a, 0);
+  x->type = LVAL_SEXPR;
+  return lval_eval(x);
+}
+
+/* perform join operation (combine two q-exprs) */
+lval* lval_join(lval* x, lval* y) {
+  /* add each element in y to x */
+  while (y->count) {
+    x = lval_add(x, lval_pop(y, 0));
+  }
+  lval_del(y);
+  return x;
+}
+
+/* process a join s-expr */
+lval* builtin_join(lval* a) {
+  for (int i = 0; i < a->count; i++) {
+    LASSERT(a, a->cell[i]->type == LVAL_QEXPR,
+            "'join' passed incorrect type");
+  }
+  lval* x = lval_pop(a, 0);
+  while (a->count) {
+    x = lval_join(x, lval_pop(a, 0));
+  }
+  lval_del(a);
+  return x;
+}
+
 /* perform an operation */
 lval* builtin_op(lval* a, char* op) {
 
@@ -279,7 +322,17 @@ lval* builtin_op(lval* a, char* op) {
   return x;
 }
 
-lval* lval_eval(lval* v);
+/* call appropriate builtin func */
+lval* builtin(lval* a, char* func) {
+  if (strcmp("list", func) == 0) { return builtin_list(a); }
+  if (strcmp("head", func) == 0) { return builtin_head(a); }
+  if (strcmp("tail", func) == 0) { return builtin_tail(a); }
+  if (strcmp("join", func) == 0) { return builtin_join(a); }
+  if (strcmp("eval", func) == 0) { return builtin_eval(a); }
+  if (strcmp("+-/*", func) == 0) { return builtin_op(a); }
+  lval_del(a);
+  return lval_err("unknown function");
+}
 
 /* eval an sexpr */
 lval* lval_eval_sexpr(lval* v) {
@@ -308,7 +361,7 @@ lval* lval_eval_sexpr(lval* v) {
   }
 
   /* call builtin with operator */
-  lval* result = builtin_op(v, f->sym);
+  lval* result = builtin(v, f->sym);
   lval_del(f);
   return result;
 }
