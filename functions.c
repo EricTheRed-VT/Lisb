@@ -332,6 +332,7 @@ void lval_println(lval* v) { lval_print(v); putchar('\n'); }
 
 /* define lenv environments */
 struct lenv {
+  lenv* parent;
   int count;
   char** syms;
   lval** vals;
@@ -340,6 +341,7 @@ struct lenv {
 /* create a new lenv */
 lenv* lenv_new(void) {
   lenv* e = malloc(sizeof(lenv));
+  e->parent = NULL;
   e->count = 0;
   e->syms = NULL;
   e->vals = NULL;
@@ -367,6 +369,13 @@ void lenv_put(lenv* e, lval* k, lval* v) {
   strcpy(e->syms[e->count-1], k->sym);
 }
 
+/* add a global value */
+void lenv_put_global(lenv* e, lval* k, lval* v) {
+  /* follow parent chain up */
+  while (e->parent) { e = e->parent; }
+  lenv_put(e, k, v);
+}
+
 /* copy a value from an env */
 lval* lenv_get(lenv* e, lval* k) {
   /* iterate through env and grab value */
@@ -375,7 +384,30 @@ lval* lenv_get(lenv* e, lval* k) {
       return lval_copy(e->vals[i]);
     }
   }
-  return lval_err("key '%s' not in environment", k->sym);
+
+  /* if not found, check parent */
+  if (e->parent) {
+    return lenv_get(e->parent, k);
+  } else {
+    return lval_err("key '%s' not in environment", k->sym);
+  }
+}
+
+/* copy an lenv */
+lenv* lenv_copy(lenv* e) {
+  lenv* n = malloc(sizeof(lenv));
+  n->parent = e->parent;
+  n->count = e->count;
+  n->syms = malloc(sizeof(char*) * n->count);
+  n->vals = malloc(sizeof(lval*) * n->count);
+
+  for (int i = 0; i < e->count; i++) {
+    n->syms[i] = malloc(strlen(e->syms[i]) + 1);
+    strcpy(n->syms[i], e->syms[i]);
+    n->vals[i] = lval_copy(e->vals[i]);
+  }
+
+  return n;
 }
 
 /* delete an lenv */
@@ -547,29 +579,82 @@ lval* builtin_lambda(lenv* e, lval* a) {
 }
 
 /* func to define a new env variable */
-lval* builtin_def(lenv* e, lval* a) {
-  LASSERT_TYPE("def", a, 0, LVAL_QEXPR);
+lval* builtin_var(lenv* e, lval* a, char* func) {
+  LASSERT_TYPE(func, a, 0, LVAL_QEXPR);
 
   /* first arg is a list of symbols */
   lval* syms = a->cell[0];
   for (int i = 0; i < syms->count; i++) {
     LASSERT(a, syms->cell[i]->type == LVAL_SYM,
-            "'def' can only define symbols. "
+            "'%s' can only define symbols. "
             "Expected %s, got %s.",
-            ltype_name(LVAL_SYM),
+            func, ltype_name(LVAL_SYM),
             ltype_name(syms->cell[i]->type));
   }
   LASSERT(a, syms->count == a->count-1,
-          "'def' requires same number of values and symbols. "
+          "'%s' requires same number of values and symbols. "
           "Got %i symbols, and %i values",
-          syms->count, a->count-1);
+          func, syms->count, a->count-1);
   /* assign copies of vals to symbols */
   for (int i = 0; i < syms->count; i++) {
-    lenv_put(e, syms->cell[i], a->cell[i+1]);
+    if (strcmp(func, "def") == 0) {
+      lenv_def(e, syms->cell[i], a->cell[i+1]);
+    }
+    if (strcmp(func, "=") == 0) {
+      lenv_put(e, syms->cell[i], a->cell[i+1]);
+    }
   }
   lval_del(a);
   /* return empty expression */
   return lval_sexpr();
+}
+
+/* func to define new local variable */
+lval* builtin_put(lenv* e, lval* a) {
+  return builtin_var(e, a, "=");
+}
+
+/* func to define new global variable */
+lval* builtin_def(lenv* e, lval* a) {
+  return builtin_var(e, a, "def");
+}
+
+/* handle function calls */
+lval* lval_call(lenv* e, lval* f, lval* a) {
+  /* if a builtin, apply it */
+  if (f->builtin){ return f->builtin(e, a); }
+
+  int given = a->count;
+  int total = f->formals->count;
+  while (a->count) {
+    /* throw error if given too many args */
+    if (f->formals->counts == 0) {
+      lval_del(a);
+      return lval_err("Too many arguments given. "
+                      "Expected %i, given %i.",
+                      total, given);
+    }
+    /* assign next arg to next symbol */
+    lval* sym = lval_pop(f->formals, 0);
+    lval* val = lval_pop(a, 0);
+    lenv_put(f->env, sym, val);
+
+    lval_del(sym);
+    lval_del(val);
+  }
+  lval_del(a);
+
+  /* check if all formals have been assigned */
+  if (f->formals->count = 0) {
+    /* evaluate and return */
+    f->env->parent = e;
+    return builtin_eval( f->env,
+      lval_add(lval_sexpr(), lval_copy(f->body))
+    );
+  } else {
+    /* return partially evaluated func */
+    return lval_copy(f);
+  }
 }
 
 /* add a func to an env */
@@ -595,6 +680,7 @@ void lenv_add_builtins(lenv* e) {
   lenv_add_builtin(e, "/", builtin_div);
 
   lenv_add_builtin(e, "def", builtin_def);
+  lenv_add_builtin(e, "=", builtin_put);
 }
 
 /* eval an sexpr */
@@ -618,14 +704,18 @@ lval* lval_eval_sexpr(lenv* e, lval* v) {
   /* first element should be a function */
   lval* f = lval_pop(v, 0);
   if (f->type != LVAL_FUN) {
+    lval* err = lval_err(
+      "S-Expression must start with a function. "
+      "Expected %s, got %s.",
+      ltype_name(LVAL_FUN), ltype_name(f->type)
+    );
     lval_del(f);
     lval_del(v);
-    return lval_err("S-expression does not "
-                    "start with function");
+    return err;
   }
 
-  /* call builtin with operator */
-  lval* result = f->fun(e, v);
+  /* call function */
+  lval* result = lval_call(e, f, v);
   lval_del(f);
   return result;
 }
