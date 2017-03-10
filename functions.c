@@ -646,6 +646,21 @@ lval* lval_call(lenv* e, lval* f, lval* a) {
     }
     /* assign next arg to next symbol */
     lval* sym = lval_pop(f->formals, 0);
+
+    /* deal with & for variable num of args */
+    if (strcmp(sym->sym, "&") == 0) {
+      if(f->formals->count != 1) {
+        lval_del(a);
+        return lval_err("Invalid format: '&' not "
+                        "followed by single symbol.");
+      }
+      lval* next = lval_pop(f->formals, 0);
+      lenv_put(f->env, next, builtin_list(e, a));
+      lval_del(sym);
+      lval_del(next);
+      break;
+    }/* end '&' case */
+
     lval* val = lval_pop(a, 0);
     lenv_put(f->env, sym, val);
 
@@ -653,6 +668,22 @@ lval* lval_call(lenv* e, lval* f, lval* a) {
     lval_del(val);
   }
   lval_del(a);
+
+  /* if only '&' remains, bind to empty list */
+  if ( (f->formals->count > 0) &&
+       (strcmp(f->formals->cell[0]->sym, "&") == 0)
+  ) {
+    if (f->formals->count != 2) {
+      return lval_err("Invalid format: '&' not "
+                      "followed by single symbol.");
+    }
+    lval_del(lval_pop(f->formals, 0));
+    lval* sym = lval_pop(f->formals, 0);
+    lval* val = lval_qexpr();
+    lenv_put(f->env, sym, val);
+    lval_del(sym);
+    lval_del(val);
+  }
 
   /* check if all formals have been assigned */
   if (f->formals->count == 0) {
