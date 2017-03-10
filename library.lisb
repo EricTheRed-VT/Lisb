@@ -1,0 +1,17 @@
+{ssugar for function definition}
+def {func} (
+  lambda {args body} {
+    def (head args) (
+      lambda (tail args) body
+    )
+  }
+)
+
+fun {curry f xs} {
+  eval (join (list f) xs)
+}
+
+fun {uncurry f & xs} {
+  f xs
+}
+
