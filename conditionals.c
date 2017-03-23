@@ -624,7 +624,7 @@ lval* builtin_weak_less(lenv* e, lval* a) {
   return builtin_ord(e, a, "<=");
 }
 
-lval* builtin_if(lev* e, lval* a) {
+lval* builtin_if(lenv* e, lval* a) {
   LASSERT_NUM_ARGS("if", a, 3);
   LASSERT_ARG_TYPE("if", a, 0, LVAL_NUM);
   LASSERT_ARG_TYPE("if", a, 1, LVAL_QEXPR);
