@@ -1,4 +1,4 @@
-{**syntactic sugar for function definition**}
+;syntactic sugar for function definition
 
 (def {func} (
   lambda {args body} {
@@ -8,7 +8,7 @@
   }
 ))
 
-{**currying functions**}
+;currying functions
 
 (fun {curry f xs} {
   eval (join (list f) xs)
@@ -18,7 +18,7 @@
   f xs
 })
 
-{**list functions**}
+;list functions
 
 (fun {len list} {
   if (== list {})

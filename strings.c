@@ -941,6 +941,7 @@ lval* lval_read(mpc_ast_t* t) {
     if (strcmp(t->children[i]->contents, "}") == 0) { continue; }
     if (strcmp(t->children[i]->contents, "{") == 0) { continue; }
     if (strcmp(t->children[i]->tag, "regex") == 0) { continue; }
+    if (strstr(t->children[i]->tag, "comment")) { continue; }
     x = lval_add(x, lval_read(t->children[i]));
   }
 
@@ -955,6 +956,7 @@ int main(int argc, char** argv) {
   mpc_parser_t* Number      = mpc_new("number");
   mpc_parser_t* Symbol      = mpc_new("symbol");
   mpc_parser_t* String      = mpc_new("string");
+  mpc_parser_t* Comment     = mpc_new("comment");
   mpc_parser_t* QExpression = mpc_new("qexpr");
   mpc_parser_t* SExpression = mpc_new("sexpr");
   mpc_parser_t* Expression  = mpc_new("expr");
@@ -965,13 +967,14 @@ int main(int argc, char** argv) {
     " number    : /-?[0-9]+/                        ;\
       symbol    : /[a-zA-Z0-9_+\\-*\\/\\\\=<>!&]+/  ;\
       string    : /\"(\\\\.|[^\"])*\"/              ;\
+      comment   : /;[^\\r\\n]*/                     ;\
       qexpr     : '{' <expr>* '}'                   ;\
       sexpr     : '(' <expr>* ')'                   ;\
       expr      : <number> | <symbol> | <string>     \
-                  | <qexpr> | <sexpr>               ;\
+                  | <comment> | <qexpr> | <sexpr>   ;\
       lisb      : /^/ <expr>* /$/                   ;\
     ",
-    Number, Symbol, String,
+    Number, Symbol, String, Comment,
     QExpression, SExpression,
     Expression, Lisb
   );
@@ -1009,9 +1012,10 @@ int main(int argc, char** argv) {
   lenv_del(e);
 
   /* Undefine and Delete parsers */
-  mpc_cleanup(6,
-              Number, Symbol, QExpression,
-              SExpression, Expression, Lisb);
+  mpc_cleanup(8,
+              Number, Symbol, String, Comment,
+              QExpression, SExpression,
+              Expression, Lisb);
 
   return 0;
 } /* end main */
