@@ -1,4 +1,5 @@
-{ssugar for function definition}
+{syntactic sugar for function definition}
+
 def {func} (
   lambda {args body} {
     def (head args) (
