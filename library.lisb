@@ -1,18 +1,33 @@
-{syntactic sugar for function definition}
+{**syntactic sugar for function definition**}
 
-def {func} (
+(def {func} (
   lambda {args body} {
     def (head args) (
       lambda (tail args) body
     )
   }
-)
+))
 
-fun {curry f xs} {
+{**currying functions**}
+
+(fun {curry f xs} {
   eval (join (list f) xs)
-}
+})
 
-fun {uncurry f & xs} {
+(fun {uncurry f & xs} {
   f xs
-}
+})
 
+{**list functions**}
+
+(fun {len list} {
+  if (== list {})
+    {0}
+    {+ 1 (len (tail list) )}
+})
+
+(fun {reverse list} {
+  if (== list {})
+    {{}}
+    {join (reverse (tail list)) (head list)}
+})
