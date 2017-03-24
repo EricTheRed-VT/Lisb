@@ -46,8 +46,9 @@ typedef lval* (*lbuiltin)(lenv*, lval*);
 
 /* Declare lval struct */
 struct lval {
-  /* basic */
   int type;
+
+  /* basic */
   long num;
   char* err;
   char* sym;
@@ -271,7 +272,7 @@ void lval_del(lval* v) {
         lval_del(v->cell[i]);
       }
       free(v->cell);
-      break;
+    break;
   }
   free(v);
 }
@@ -296,7 +297,7 @@ void lval_print_str(lval* v) {
 }
 
 /* print an expr */
-void lval_expr_print(lval* v, char open, char close) {
+void lval_print_expr(lval* v, char open, char close) {
   putchar(open);
 
   for (int i = 0; i < v->count; i++) {
@@ -315,8 +316,8 @@ void lval_print(lval* v) {
     case LVAL_ERR: printf("Error: %s", v->err); break;
     case LVAL_SYM: printf("%s", v->sym); break;
     case LVAL_STR: lval_print_str(v); break;
-    case LVAL_QEXPR: lval_expr_print(v, '{', '}'); break;
-    case LVAL_SEXPR: lval_expr_print(v, '(', ')'); break;
+    case LVAL_QEXPR: lval_print_expr(v, '{', '}'); break;
+    case LVAL_SEXPR: lval_print_expr(v, '(', ')'); break;
     case LVAL_FUN:
       if (v->builtin) { printf("<builtin>"); }
       else {
@@ -332,6 +333,36 @@ void lval_print(lval* v) {
 
 /* print an lval and newline */
 void lval_println(lval* v) { lval_print(v); putchar('\n'); }
+
+/* check equality of two lvals */
+int lval_eq(lval* x, lval* y) {
+  if (x->type != y->type) {return 0;}
+
+  switch (x->type) {
+    case LVAL_NUM: return (x->num == y->num);
+    case LVAL_ERR: return (strcmp(x->err, y->err) == 0);
+    case LVAL_SYM: return (strcmp(x->sym, y->sym) == 0);
+    case LVAL_STR: return (strcmp(x->str, y->str) == 0);
+
+    case LVAL_FUN:
+      if (x->builtin || y->builtin) {
+        return (x->builtin == y->builtin);
+      } else {
+        return (lval_eq(x->formals, y->formals)
+                && lval_eq(x->body, y->body));
+      }
+
+    case LVAL_QEXPR:
+    case LVAL_SEXPR:
+      if (x->count != y->count) {return 0;}
+      for (int i = 0; i < x->count; i++) {
+        if (!lval_eq(x->cell[i], y->cell[i])) {return 0;}
+      }
+      return 1;
+    break;
+  }
+  return 0;
+}
 
 /************************* LENV *************************/
 
@@ -562,34 +593,6 @@ lval* builtin_div(lenv* e, lval* a) {
 }
 
 /* handle equivalence checks */
-int lval_eq(lval* x, lval* y) {
-  if (x->type != y->type) {return 0;}
-
-  switch (x->type) {
-    case LVAL_NUM: return (x->num == y->num);
-    case LVAL_ERR: return (strcmp(x->err, y->err) == 0);
-    case LVAL_SYM: return (strcmp(x->sym, y->sym) == 0);
-    case LVAL_STR: return (strcmp(x->str, y->str) == 0);
-
-    case LVAL_FUN:
-      if (x->builtin || y->builtin) {
-        return (x->builtin == y->builtin);
-      } else {
-        return (lval_eq(x->formals, y->formals)
-                && lval_eq(x->body, y->body));
-      }
-
-    case LVAL_QEXPR:
-    case LVAL_SEXPR:
-      if (x->count != y->count) {return 0;}
-      for (int i = 0; i < x->count; i++) {
-        if (!lval_eq(x->cell[i], y->cell[i])) {return 0;}
-      }
-      return 1;
-    break;
-  }
-  return 0;
-}
 
 lval* builtin_cmp(lenv* e, lval* a, char* op) {
   LASSERT_NUM_ARGS(op, a, 2);
@@ -701,7 +704,7 @@ lval* builtin_var(lenv* e, lval* a, char* func) {
   /* first arg is a list of symbols */
   lval* syms = a->cell[0];
   for (int i = 0; i < syms->count; i++) {
-    LASSERT(a, syms->cell[i]->type == LVAL_SYM,
+    LASSERT(a, (syms->cell[i]->type == LVAL_SYM),
             "'%s' can only define symbols. "
             "Expected %s, got %s.",
             func, ltype_name(LVAL_SYM),
@@ -735,6 +738,76 @@ lval* builtin_def(lenv* e, lval* a) {
   return builtin_var(e, a, "def");
 }
 
+/* forward declarations to allow file loading */
+mpc_parser_t* Number;
+mpc_parser_t* Symbol;
+mpc_parser_t* String;
+mpc_parser_t* Comment;
+mpc_parser_t* QExpression;
+mpc_parser_t* SExpression;
+mpc_parser_t* Expression;
+mpc_parser_t* Lisb;
+lval* lval_read(mpc_ast_t* t);
+
+/* func to load in a _.lisb file */
+lval* builtin_load(lenv* e, lval* a) {
+  LASSERT_NUM_ARGS("load", a, 1);
+  LASSERT_ARG_TYPE("load", a, 0, LVAL_STR);
+
+  /* parse file matching given string */
+  mpc_result_t r;
+  if (mpc_parse_contents(a->cell[0]->str, Lisb, &r)) {
+    /* read contents */
+    lval* expr = lval_read(r.output);
+    mpc_ast_delete(r.output);
+
+    /* eval expressions */
+    while (expr->count) {
+      lval* x = lval_eval(e, lval_pop(expr, 0));
+      if (x->type == LVAL_ERR) { lval_println(x); }
+      lval_del(x);
+    }
+
+    /* cleanup and return empty list */
+    lval_del(expr);
+    lval_del(a);
+    return lval_sexpr();
+
+  } else { /* parser threw an error, convert to an lval error */
+    char* err_msg = mpc_err_string(r.error);
+    mpc_err_delete(r.error);
+    lval* err = lval_err("Could not load file %s", err_msg);
+
+    /* cleanup and return error */
+    free(err_msg);
+    lval_del(a);
+    return err;
+  }
+}
+
+/* func to print to console */
+lval* builtin_print(lenv* e, lval* a) {
+  for (int i = 0; i < a->count; i++) {
+    lval_print(a->cell[i]);
+    putchar(' ');
+  }
+  putchar('\n');
+  lval_del(a);
+
+  return lval_sexpr();
+}
+
+/* func to throw a new error */
+lval* builtin_error(lenv* e, lval* a) {
+  LASSERT_NUM_ARGS("error", a, 1);
+  LASSERT_ARG_TYPE("error", a, 0, LVAL_STR);
+
+  /* build a new error from the provided string */
+  lval* err = lval_err(a->cell[0]->str);
+  lval_del(a);
+  return err;
+}
+
 /* add a func to an env */
 void lenv_add_builtin(lenv* e, char* name, lbuiltin func) {
   lval* k = lval_sym(name);
@@ -746,6 +819,11 @@ void lenv_add_builtin(lenv* e, char* name, lbuiltin func) {
 
 /* add our builtin funcs to an env */
 void lenv_add_builtins(lenv* e) {
+  /* string builtins */
+  lenv_add_builtin(e, "load", builtin_load);
+  lenv_add_builtin(e, "error", builtin_error);
+  lenv_add_builtin(e, "print", builtin_print);
+
   /* list builtins */
   lenv_add_builtin(e, "list", builtin_list);
   lenv_add_builtin(e, "head", builtin_head);
@@ -837,8 +915,10 @@ lval* lval_call(lenv* e, lval* f, lval* a) {
   if (f->formals->count == 0) {
     /* evaluate and return */
     f->env->parent = e;
-    return builtin_eval( f->env,
-      lval_add(lval_sexpr(), lval_copy(f->body))
+    return builtin_eval(f->env,
+                        lval_add( lval_sexpr(),
+                                  lval_copy(f->body)
+                        )
     );
   } else {
     /* return partially evaluated func */
@@ -855,14 +935,18 @@ lval* lval_eval_sexpr(lenv* e, lval* v) {
 
   /* if there are errors, return the first error found */
   for (int i = 0; i < v->count; i++) {
-    if (v->cell[i]->type == LVAL_ERR) { return lval_take(v, i); }
+    if (v->cell[i]->type == LVAL_ERR) {
+      return lval_take(v, i);
+    }
   }
 
   /* if empty return self */
   if (v->count == 0) { return v; }
 
   /* single expression */
-  if (v->count == 1) { return lval_eval(e, lval_take(v, 0)); }
+  if (v->count == 1) {
+    return lval_eval(e, lval_take(v, 0));
+  }
 
   /* first element should be a function */
   lval* f = lval_pop(v, 0);
@@ -904,7 +988,7 @@ lval* lval_read_num(mpc_ast_t* t) {
   long x = strtol(t->contents, NULL, 10);
   return errno != ERANGE
     ? lval_num(x)
-    : lval_err("Invalid Number '%s'", t->contents);
+    : lval_err("Invalid Number.");
 }
 
 /* create a string lval from a leaf */
@@ -953,14 +1037,14 @@ lval* lval_read(mpc_ast_t* t) {
 int main(int argc, char** argv) {
 
   /* Create parsers */
-  mpc_parser_t* Number      = mpc_new("number");
-  mpc_parser_t* Symbol      = mpc_new("symbol");
-  mpc_parser_t* String      = mpc_new("string");
-  mpc_parser_t* Comment     = mpc_new("comment");
-  mpc_parser_t* QExpression = mpc_new("qexpr");
-  mpc_parser_t* SExpression = mpc_new("sexpr");
-  mpc_parser_t* Expression  = mpc_new("expr");
-  mpc_parser_t* Lisb        = mpc_new("lisb");
+  Number      = mpc_new("number");
+  Symbol      = mpc_new("symbol");
+  String      = mpc_new("string");
+  Comment     = mpc_new("comment");
+  QExpression = mpc_new("qexpr");
+  SExpression = mpc_new("sexpr");
+  Expression  = mpc_new("expr");
+  Lisb        = mpc_new("lisb");
 
   /* Define grammar */
   mpca_lang(MPCA_LANG_DEFAULT,
@@ -983,31 +1067,49 @@ int main(int argc, char** argv) {
   lenv* e = lenv_new();
   lenv_add_builtins(e);
 
-  /* Print Version and Exit Info */
-  puts("Lisb Version 0.0.1");
-  puts("Press Ctrl+C to Exit\n");
+  /* if no files listed, open REPL */
+  if (argc == 1) {
+    /* Print Version and Exit Info */
+    puts("Lisb Version 0.0.1");
+    puts("Press Ctrl+C to Exit\n");
 
-  /* prompt/input/response loop */
-  while (1) {
-    char* input = readline("lisb> ");
-    add_history(input);
+    /* prompt/input/response loop */
+    while (1) {
+      char* input = readline("lisb> ");
+      add_history(input);
 
-    /* Parse and evaluate the input */
-    mpc_result_t r;
-    if (mpc_parse("<stdin>", input, Lisb, &r)) {
-      /* Success: print */
-      lval* x = lval_eval(e, lval_read(r.output));
-      lval_println(x);
-      lval_del(x);
-      mpc_ast_delete(r.output);
-    } else {
-      /* Failure: Print Error */
-      mpc_err_print(r.error);
-      mpc_err_delete(r.error);
+      /* Parse and evaluate the input */
+      mpc_result_t r;
+      if (mpc_parse("<stdin>", input, Lisb, &r)) {
+        /* Success: print */
+        lval* x = lval_eval(e, lval_read(r.output));
+        lval_println(x);
+        lval_del(x);
+        mpc_ast_delete(r.output);
+      } else {
+        /* Failure: Print Error */
+        mpc_err_print(r.error);
+        mpc_err_delete(r.error);
+      }
+
+      free(input);
     }
-
-    free(input);
   }
+
+  /* if called with filenames, load and run each */
+  if (argc >= 2) {
+    /* put each filename into a string and load it */
+    for (int i = 1; i < argc; i++) {
+      lval* args = lval_add(lval_sexpr(), lval_str(argv[i]));
+      lval* x = builtin_load(e, args);
+
+      /* if result is an error, print it */
+      if (x->type == LVAL_ERR) { lval_println(x); }
+
+      lval_del(x);
+    }
+  }
+
 
   lenv_del(e);
 

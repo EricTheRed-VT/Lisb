@@ -1,5 +1,4 @@
 ;syntactic sugar for function definition
-
 (def {func} (
   lambda {args body} {
     def (head args) (
@@ -9,24 +8,22 @@
 ))
 
 ;currying functions
-
-(fun {curry f xs} {
+(func {curry f xs} {
   eval (join (list f) xs)
 })
 
-(fun {uncurry f & xs} {
+(func {uncurry f & xs} {
   f xs
 })
 
 ;list functions
-
-(fun {len list} {
+(func {len list} {
   if (== list {})
     {0}
     {+ 1 (len (tail list) )}
 })
 
-(fun {reverse list} {
+(func {reverse list} {
   if (== list {})
     {{}}
     {join (reverse (tail list)) (head list)}
