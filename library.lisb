@@ -28,3 +28,5 @@
     {{}}
     {join (reverse (tail list)) (head list)}
 })
+
+(print "library loaded!")
