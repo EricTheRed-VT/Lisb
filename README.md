@@ -5,8 +5,8 @@ Lisb is a Lisp-like, intepreted language. This project serves as an exercise
 to learn C, study compiler implementation and theory, and become familiar with Lisp.
 
 ## Usage
-a file can be executed through the command line using ```lisb filename.lisb```
-The '.lisb' extension is currently not required, but useful for labeling.
+a file can be executed through the command line using ```./lisb filename.lisb``` from the containing folder.
+The '.lisb' file extension is currently not required, but useful for labeling.
 If called without a file name, Lisb can be used through a command line REPL.
 
 ## Language Specs
